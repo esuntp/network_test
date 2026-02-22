@@ -222,6 +222,8 @@ $primaryIPv4  = if ($activeConfig) { ($activeConfig.IPv4Address | Select-Object 
 $primaryIPv6  = if ($activeConfig) { ($activeConfig.IPv6Address | Where-Object { $_.PrefixOrigin -ne 'WellKnown' } | Select-Object -First 1).IPAddress } else { $null }
 $gateway      = if ($activeConfig) { ($activeConfig.IPv4DefaultGateway | Select-Object -First 1).NextHop } else { "N/A" }
 $dnsServers   = if ($activeConfig) { ($activeConfig.DNSServer | Where-Object { $_.AddressFamily -eq 2 } | Select-Object -ExpandProperty ServerAddresses) -join ", " } else { "N/A" }
+$primaryMAC   = if ($activeConfig) { ($allAdapters | Where-Object { $_.Name -eq $activeConfig.InterfaceAlias } | Select-Object -First 1).MacAddress } else { "N/A" }
+if (-not $primaryMAC) { $primaryMAC = "N/A" }
 
 # Inject dynamic targets
 if ($gateway -ne "N/A") {
@@ -271,7 +273,8 @@ $internetOK    = $extURLTests["Google"].Success -or $extURLTests["Office 365"].S
 $step++; Write-Progress-Step $step $totalSteps $activity "Collecting all network interface details..."
 # (allAdapters already collected)
 
-$step++; Write-Progress-Step $step $totalSteps $activity "Running detailed ping tests to all targets..."
+$step++; Write-Progress-Step $step $totalSteps $activity "Collecting route table..."
+$routeTable = Get-NetRoute -ErrorAction SilentlyContinue | Sort-Object RouteMetric, DestinationPrefix
 $pingResults = @{}
 $allTargets  = @()
 $allTargets += $Config.InternalHosts | Where-Object { $_.Host }
@@ -325,9 +328,9 @@ Add "  Logged-in User     : $username"
 Add "  AD Display Name    : $adFullName"
 Add ""
 Add "  Primary IPv4       : $primaryIPv4"
-if ($primaryIPv6) {
-    Add "  Primary IPv6       : $primaryIPv6"
-}
+$ipv6Line = if ($primaryIPv6) { $primaryIPv6 } else { "Not configured" }
+Add "  Primary IPv6       : $ipv6Line"
+Add "  MAC Address        : $primaryMAC"
 Add "  Default Gateway    : $gateway"
 Add "  DNS Servers        : $dnsServers"
 Add ""
@@ -458,9 +461,28 @@ foreach ($adapter in $allAdapters | Sort-Object Status, Name) {
     Add ""
 }
 
-# 3.2 Ping Results
+# 3.2 Route Table
 Add "$(HR '-')"
-Add "  3.2  DETAILED PING RESULTS  ($($Config.PingCount) packets per target)"
+Add "  3.2  WINDOWS ROUTE TABLE"
+Add "$(HR '-')"
+Add ""
+$rtHdr = "  {0} {1} {2} {3} {4}" -f "Destination".PadRight(25), "Gateway".PadRight(18), "Interface".PadRight(22), "Metric".PadLeft(7), "Protocol".PadLeft(12)
+Add $rtHdr
+Add "  $(HR '-' 90)"
+foreach ($route in $routeTable) {
+    $dest    = if ($route.DestinationPrefix) { $route.DestinationPrefix } else { "N/A" }
+    $gw      = if ($route.NextHop -and $route.NextHop -ne '0.0.0.0' -and $route.NextHop -ne '::') { $route.NextHop } else { "on-link" }
+    $iface   = if ($route.InterfaceAlias) { $route.InterfaceAlias } else { "idx:$($route.InterfaceIndex)" }
+    $metric  = [string]$route.RouteMetric
+    $proto   = if ($route.Protocol) { $route.Protocol } else { "-" }
+    $rline = "  {0} {1} {2} {3} {4}" -f $dest.PadRight(25), $gw.PadRight(18), $iface.PadRight(22), $metric.PadLeft(7), ([string]$proto).PadLeft(12)
+    Add $rline
+}
+Add ""
+
+# 3.3 Ping Results (was 3.2)
+Add "$(HR '-')"
+Add "  3.3  DETAILED PING RESULTS  ($($Config.PingCount) packets per target)"
 Add "$(HR '-')"
 Add ""
 $pingHdr = "  {0} {1} {2} {3} {4} {5} {6} {7}" -f "Target".PadRight(35),"Sent".PadLeft(4),"Recv".PadLeft(4),"Loss%".PadLeft(6),"Min ms".PadLeft(7),"Avg ms".PadLeft(7),"Max ms".PadLeft(7),"Jitter".PadLeft(7)
@@ -488,9 +510,9 @@ Add "  NOTE: All values in milliseconds. Jitter = mean absolute deviation of"
 Add "        consecutive round-trip times. Loss% = packet loss percentage."
 Add ""
 
-# 3.3 DNS Lookup
+# 3.4 DNS Lookup
 Add "$(HR '-')"
-Add "  3.3  DETAILED DNS LOOKUPS"
+Add "  3.4  DETAILED DNS LOOKUPS"
 Add "$(HR '-')"
 Add ""
 
@@ -511,9 +533,9 @@ foreach ($t in $allTargets) {
     }
 }
 
-# 3.4 Web Access Tests
+# 3.5 Web Access Tests
 Add "$(HR '-')"
-Add "  3.4  WEB ACCESS TESTS"
+Add "  3.5  WEB ACCESS TESTS"
 Add "$(HR '-')"
 Add ""
 $webHdr = "  {0} {1} {2} {3} {4}" -f "Name".PadRight(24),"URL".PadRight(45),"Status".PadLeft(7),"HTTP".PadLeft(5),"Latency".PadLeft(9)
@@ -540,9 +562,9 @@ foreach ($url in $Config.WebURLs) {
 }
 Add ""
 
-# 3.5 Cloud Platform Detailed Tests
+# 3.6 Cloud Platform Detailed Tests
 Add "$(HR '-')"
-Add "  3.5  CLOUD PLATFORM AVAILABILITY - DETAILED"
+Add "  3.6  CLOUD PLATFORM AVAILABILITY - DETAILED"
 Add "$(HR '-')"
 Add ""
 
