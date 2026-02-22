@@ -169,10 +169,10 @@ function Get-ADUserFullName {
 }
 
 function Pad-Right { param([string]$s, [int]$n) $s.PadRight($n) }
-function HR { param([char]$c='─', [int]$n=80) return ([string]$c * $n) }
+function HR { param([string]$c='=', [int]$n=80) return $c * $n }
 function SectionHeader {
     param([string]$Title, [int]$Num)
-    $bar = HR '═'
+    $bar = HR '='
     return @"
 $bar
   SECTION $Num : $($Title.ToUpper())
@@ -192,9 +192,9 @@ function StatusBadge {
 
 Clear-Host
 Write-Host ""
-Write-Host "╔══════════════════════════════════════════════════════════════════════════════╗" -ForegroundColor Yellow
-Write-Host "║              NETWORK TEST TOOL  —  Multi-Level Support Report               ║" -ForegroundColor Yellow
-Write-Host "╚══════════════════════════════════════════════════════════════════════════════╝" -ForegroundColor Yellow
+Write-Host "+================================================================================+" -ForegroundColor Yellow
+Write-Host "|              NETWORK TEST TOOL  -  Multi-Level Support Report               |" -ForegroundColor Yellow
+Write-Host "+================================================================================+" -ForegroundColor Yellow
 Write-Host ""
 
 $totalSteps = 18
@@ -310,9 +310,9 @@ $reportLines = [System.Collections.Generic.List[string]]::new()
 function Add { param([string]$line="") $reportLines.Add($line) }
 
 # ─── Header ────────────────────────────────────────────────────────────────────
-Add "$(HR '═')"
+Add "$(HR '=')"
 Add "  NETWORK TEST TOOL REPORT"
-Add "$(HR '═')"
+Add "$(HR '=')"
 Add ""
 
 # ─── SECTION 1 ─────────────────────────────────────────────────────────────────
@@ -344,9 +344,9 @@ Add (SectionHeader "Helpdesk Troubleshooting Information" 2)
 Add ""
 Add "  Legend: [ OK    ] = Test passed    [ ERROR ] = Test failed"
 Add ""
-Add "$(HR '─')"
+Add "$(HR '-')"
 Add "  LOCAL NETWORK ACCESS"
-Add "$(HR '─')"
+Add "$(HR '-')"
 
 $gwErr  = if (-not $gwPing.Reachable)  { "Gateway unreachable" } else { "" }
 $dnsErr = if (-not $dnsPing.Reachable) { "DNS server unreachable" } else { "" }
@@ -364,16 +364,16 @@ Add "    DNS Ping      : $dnsPingStr"
 Add "    nslookup test : $nsTestStr"
 Add ""
 
-Add "$(HR '─')"
+Add "$(HR '-')"
 Add "  INTERNAL SERVICES"
-Add "$(HR '─')"
+Add "$(HR '-')"
 
-$int1DNS = if ($intDNS1.Success) { "OK → $($intDNS1.IPs)" } else { "FAIL — $($intDNS1.Error)" }
-$int2DNS = if ($intDNS2.Success) { "OK → $($intDNS2.IPs)" } else { "FAIL — $($intDNS2.Error)" }
+$int1DNS = if ($intDNS1.Success) { "OK -> $($intDNS1.IPs)" } else { "FAIL - $($intDNS1.Error)" }
+$int2DNS = if ($intDNS2.Success) { "OK -> $($intDNS2.IPs)" } else { "FAIL - $($intDNS2.Error)" }
 $int1Web = $internalWebResults["test1.local"]
 $int2Web = $internalWebResults["test2.local"]
-$int1WebStr = if ($int1Web.Success) { "OK (HTTP $($int1Web.StatusCode), $($int1Web.LatencyMs) ms)" } else { "FAIL (HTTP $($int1Web.StatusCode)) — $($int1Web.Error)" }
-$int2WebStr = if ($int2Web.Success) { "OK (HTTP $($int2Web.StatusCode), $($int2Web.LatencyMs) ms)" } else { "FAIL (HTTP $($int2Web.StatusCode)) — $($int2Web.Error)" }
+$int1WebStr = if ($int1Web.Success) { "OK (HTTP $($int1Web.StatusCode), $($int1Web.LatencyMs) ms)" } else { "FAIL (HTTP $($int1Web.StatusCode)) - $($int1Web.Error)" }
+$int2WebStr = if ($int2Web.Success) { "OK (HTTP $($int2Web.StatusCode), $($int2Web.LatencyMs) ms)" } else { "FAIL (HTTP $($int2Web.StatusCode)) - $($int2Web.Error)" }
 
 $intBadge = StatusBadge $internalSvcOK
 Add "  $intBadge  Internal Services"
@@ -383,9 +383,9 @@ Add "    test2.local DNS  : $int2DNS"
 Add "    test2.local Web  : $int2WebStr"
 Add ""
 
-Add "$(HR '─')"
+Add "$(HR '-')"
 Add "  INTERNET SERVICES"
-Add "$(HR '─')"
+Add "$(HR '-')"
 
 $googleOK    = $extURLTests["Google"].Success
 $sharepointOK= $extURLTests["SharePoint"].Success
@@ -404,9 +404,9 @@ foreach ($url in @("Google","Office 365","SharePoint","MS Teams Web","Webex")) {
 }
 Add ""
 
-Add "$(HR '─')"
+Add "$(HR '-')"
 Add "  CLOUD PLATFORM AVAILABILITY"
-Add "$(HR '─')"
+Add "$(HR '-')"
 
 $teamsConnOK = $teamsConnTest.Success
 $webexConnOK = $webexConnTest.Success
@@ -421,7 +421,7 @@ Add "  $webexBadge  Cisco Webex- API ping:              HTTP $($webexConnTest.St
 Add "  $m365Badge  M365       - Portal access:          HTTP $($m365Test.StatusCode), $($m365Test.LatencyMs) ms"
 Add ""
 Add "  TIP: For authoritative service health, check:"
-Add "       Teams/M365 : https://admin.microsoft.com  →  Health → Service health"
+Add "       Teams/M365 : https://admin.microsoft.com  ->  Health -> Service health"
 Add "       Webex       : https://status.webex.com"
 Add ""
 
@@ -430,9 +430,9 @@ Add (SectionHeader "Network Engineer Troubleshooting Information" 3)
 Add ""
 
 # 3.1 All Interfaces
-Add "$(HR '─')"
-Add "  3.1  NETWORK INTERFACES (ALL — ACTIVE AND INACTIVE)"
-Add "$(HR '─')"
+Add "$(HR '-')"
+Add "  3.1  NETWORK INTERFACES (ALL - ACTIVE AND INACTIVE)"
+Add "$(HR '-')"
 Add ""
 
 foreach ($adapter in $allAdapters | Sort-Object Status, Name) {
@@ -459,9 +459,9 @@ foreach ($adapter in $allAdapters | Sort-Object Status, Name) {
 }
 
 # 3.2 Ping Results
-Add "$(HR '─')"
+Add "$(HR '-')"
 Add "  3.2  DETAILED PING RESULTS  ($($Config.PingCount) packets per target)"
-Add "$(HR '─')"
+Add "$(HR '-')"
 Add ""
 $pingHdr = "  {0} {1} {2} {3} {4} {5} {6} {7}" -f "Target".PadRight(35),"Sent".PadLeft(4),"Recv".PadLeft(4),"Loss%".PadLeft(6),"Min ms".PadLeft(7),"Avg ms".PadLeft(7),"Max ms".PadLeft(7),"Jitter".PadLeft(7)
 Add $pingHdr
@@ -489,9 +489,9 @@ Add "        consecutive round-trip times. Loss% = packet loss percentage."
 Add ""
 
 # 3.3 DNS Lookup
-Add "$(HR '─')"
+Add "$(HR '-')"
 Add "  3.3  DETAILED DNS LOOKUPS"
-Add "$(HR '─')"
+Add "$(HR '-')"
 Add ""
 
 foreach ($t in $allTargets) {
@@ -512,9 +512,9 @@ foreach ($t in $allTargets) {
 }
 
 # 3.4 Web Access Tests
-Add "$(HR '─')"
+Add "$(HR '-')"
 Add "  3.4  WEB ACCESS TESTS"
-Add "$(HR '─')"
+Add "$(HR '-')"
 Add ""
 $webHdr = "  {0} {1} {2} {3} {4}" -f "Name".PadRight(24),"URL".PadRight(45),"Status".PadLeft(7),"HTTP".PadLeft(5),"Latency".PadLeft(9)
 Add $webHdr
@@ -541,9 +541,9 @@ foreach ($url in $Config.WebURLs) {
 Add ""
 
 # 3.5 Cloud Platform Detailed Tests
-Add "$(HR '─')"
-Add "  3.5  CLOUD PLATFORM AVAILABILITY — DETAILED"
-Add "$(HR '─')"
+Add "$(HR '-')"
+Add "  3.5  CLOUD PLATFORM AVAILABILITY - DETAILED"
+Add "$(HR '-')"
 Add ""
 
 Add "  -- Microsoft Teams ------------------------------------------------------------"
@@ -587,9 +587,9 @@ Add "     DNS (office.com)   : $m3DNSStr"
 Add "     Status Page        : https://status.office365.com"
 Add ""
 
-Add "$(HR '═')"
+Add "$(HR '=')"
 Add "  END OF REPORT"
-Add "$(HR '═')"
+Add "$(HR '=')"
 
 #── Save Report ────────────────────────────────────────────────────────────────
 $step++; Write-Progress-Step $step $totalSteps $activity "Saving report file..."
@@ -604,10 +604,10 @@ $reportLines | Set-Content -Path $reportPath -Encoding UTF8
 Write-Progress -Activity $activity -Completed
 
 Write-Host ""
-Write-Host "$(HR '═' 80)" -ForegroundColor Green
+Write-Host "$(HR '=' 80)" -ForegroundColor Green
 Write-Host "  Report saved to:" -ForegroundColor Green
 Write-Host "  $reportPath" -ForegroundColor White
-Write-Host "$(HR '═' 80)" -ForegroundColor Green
+Write-Host "$(HR '=' 80)" -ForegroundColor Green
 Write-Host ""
 
 # Quick summary to console
