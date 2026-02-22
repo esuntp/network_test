@@ -5,7 +5,6 @@
 .DESCRIPTION
     Collects network details, runs connectivity tests, and generates a structured report
     for helpdesk and network engineering troubleshooting.
-    Created by: Ehsan to use by :)
 .NOTES
     Run as: .\NetworkTest.ps1
     Output: $env:USERPROFILE\<hostname>_NetTest_YYYYmmDD_HHMM.txt
@@ -354,10 +353,15 @@ $dnsErr = if (-not $dnsPing.Reachable) { "DNS server unreachable" } else { "" }
 $nsErr  = if (-not $nsTest.Success)    { "nslookup failed" } else { "" }
 $localOK = $gwPing.Reachable -and $dnsPing.Reachable -and $nsTest.Success
 
-Add "  $(StatusBadge $localOK (($gwErr,$dnsErr,$nsErr | Where-Object {$_}) -join '; '))  Local Network Access"
-Add "    Gateway Ping  : $(if($gwPing.Reachable){"OK ($($gwPing.Avg) ms avg)"}else{"FAIL — gateway not responding"})"
-Add "    DNS Ping      : $(if($dnsPing.Reachable){"OK ($($dnsPing.Avg) ms avg)"}else{"FAIL — DNS server not responding"})"
-Add "    nslookup test : $(if($nsTest.Success){"OK — $($Config.NslookupTestDomain) resolved"}else{"FAIL — $($Config.NslookupTestDomain) not resolved"})"
+$localErrMsg   = ($gwErr,$dnsErr,$nsErr | Where-Object {$_}) -join '; '
+$localBadge    = StatusBadge $localOK $localErrMsg
+$gwPingStr     = if ($gwPing.Reachable)  { "OK ($($gwPing.Avg) ms avg)"  } else { "FAIL - gateway not responding" }
+$dnsPingStr    = if ($dnsPing.Reachable) { "OK ($($dnsPing.Avg) ms avg)" } else { "FAIL - DNS server not responding" }
+$nsTestStr     = if ($nsTest.Success)    { "OK - $($Config.NslookupTestDomain) resolved" } else { "FAIL - $($Config.NslookupTestDomain) not resolved" }
+Add "  $localBadge  Local Network Access"
+Add "    Gateway Ping  : $gwPingStr"
+Add "    DNS Ping      : $dnsPingStr"
+Add "    nslookup test : $nsTestStr"
 Add ""
 
 Add "$(HR '─')"
@@ -371,7 +375,8 @@ $int2Web = $internalWebResults["test2.local"]
 $int1WebStr = if ($int1Web.Success) { "OK (HTTP $($int1Web.StatusCode), $($int1Web.LatencyMs) ms)" } else { "FAIL (HTTP $($int1Web.StatusCode)) — $($int1Web.Error)" }
 $int2WebStr = if ($int2Web.Success) { "OK (HTTP $($int2Web.StatusCode), $($int2Web.LatencyMs) ms)" } else { "FAIL (HTTP $($int2Web.StatusCode)) — $($int2Web.Error)" }
 
-Add "  $(StatusBadge $internalSvcOK)  Internal Services"
+$intBadge = StatusBadge $internalSvcOK
+Add "  $intBadge  Internal Services"
 Add "    test1.local DNS  : $int1DNS"
 Add "    test1.local Web  : $int1WebStr"
 Add "    test2.local DNS  : $int2DNS"
@@ -390,8 +395,11 @@ $internetSvcOK = $googleOK -or $sharepointOK -or $teamsOK
 foreach ($url in @("Google","Office 365","SharePoint","MS Teams Web","Webex")) {
     $r = $extURLTests[$url]
     if ($r) {
-        $str = if ($r.Success) { "OK (HTTP $($r.StatusCode), $($r.LatencyMs) ms)" } else { "FAIL (HTTP $($r.StatusCode)) — $($r.Error.Substring(0,[Math]::Min(60,$r.Error.Length)))" }
-        Add "  $(StatusBadge $r.Success)  $($url.PadRight(20)) $str"
+        $badge = StatusBadge $r.Success
+        $errTrunc = if ($r.Error) { $r.Error.Substring(0,[Math]::Min(60,$r.Error.Length)) } else { "" }
+        $str = if ($r.Success) { "OK (HTTP $($r.StatusCode), $($r.LatencyMs) ms)" } else { "FAIL (HTTP $($r.StatusCode)) - $errTrunc" }
+        $urlPad = $url.PadRight(20)
+        Add "  $badge  $urlPad $str"
     }
 }
 Add ""
@@ -404,9 +412,13 @@ $teamsConnOK = $teamsConnTest.Success
 $webexConnOK = $webexConnTest.Success
 $m365OK      = $m365Test.Success
 
-Add "  $(StatusBadge $teamsConnOK)  MS Teams   — Connectivity endpoint: HTTP $($teamsConnTest.StatusCode), $($teamsConnTest.LatencyMs) ms"
-Add "  $(StatusBadge $webexConnOK)  Cisco Webex— API ping:              HTTP $($webexConnTest.StatusCode), $($webexConnTest.LatencyMs) ms"
-Add "  $(StatusBadge $m365OK)  M365       — Portal access:          HTTP $($m365Test.StatusCode), $($m365Test.LatencyMs) ms"
+$teamsBadge = StatusBadge $teamsConnOK
+$webexBadge = StatusBadge $webexConnOK
+$m365Badge  = StatusBadge $m365OK
+
+Add "  $teamsBadge  MS Teams   - Connectivity endpoint: HTTP $($teamsConnTest.StatusCode), $($teamsConnTest.LatencyMs) ms"
+Add "  $webexBadge  Cisco Webex- API ping:              HTTP $($webexConnTest.StatusCode), $($webexConnTest.LatencyMs) ms"
+Add "  $m365Badge  M365       - Portal access:          HTTP $($m365Test.StatusCode), $($m365Test.LatencyMs) ms"
 Add ""
 Add "  TIP: For authoritative service health, check:"
 Add "       Teams/M365 : https://admin.microsoft.com  →  Health → Service health"
@@ -451,14 +463,23 @@ Add "$(HR '─')"
 Add "  3.2  DETAILED PING RESULTS  ($($Config.PingCount) packets per target)"
 Add "$(HR '─')"
 Add ""
-Add "  $("Target".PadRight(35)) $("Sent".PadLeft(4)) $("Recv".PadLeft(4)) $("Loss%".PadLeft(6)) $("Min ms".PadLeft(7)) $("Avg ms".PadLeft(7)) $("Max ms".PadLeft(7)) $("Jitter".PadLeft(7))"
+$pingHdr = "  {0} {1} {2} {3} {4} {5} {6} {7}" -f "Target".PadRight(35),"Sent".PadLeft(4),"Recv".PadLeft(4),"Loss%".PadLeft(6),"Min ms".PadLeft(7),"Avg ms".PadLeft(7),"Max ms".PadLeft(7),"Jitter".PadLeft(7)
+Add $pingHdr
 Add "  $(HR '-' 80)"
 
 foreach ($t in $allTargets) {
     $name = $t.Name
     $r = $pingResults[$name]
     if ($r) {
-        $line = "  $($name.PadRight(35)) $([string]$r.Sent.PadLeft(4)) $([string]$r.Recv.PadLeft(4)) $([string]("$($r.Loss)%").PadLeft(6)) $([string]"$($r.Min)".PadLeft(7)) $([string]"$($r.Avg)".PadLeft(7)) $([string]"$($r.Max)".PadLeft(7)) $([string]"$($r.Jitter)".PadLeft(7))"
+        $line = "  {0} {1} {2} {3} {4} {5} {6} {7}" -f `
+            $name.PadRight(35), `
+            ([string]$r.Sent).PadLeft(4), `
+            ([string]$r.Recv).PadLeft(4), `
+            ("$($r.Loss)%").PadLeft(6), `
+            ([string]$r.Min).PadLeft(7), `
+            ([string]$r.Avg).PadLeft(7), `
+            ([string]$r.Max).PadLeft(7), `
+            ([string]$r.Jitter).PadLeft(7)
         Add $line
     }
 }
@@ -495,18 +516,25 @@ Add "$(HR '─')"
 Add "  3.4  WEB ACCESS TESTS"
 Add "$(HR '─')"
 Add ""
-Add "  $("Name".PadRight(24)) $("URL".PadRight(45)) $("Status".PadLeft(7)) $("HTTP".PadLeft(5)) $("Latency".PadLeft(9))"
+$webHdr = "  {0} {1} {2} {3} {4}" -f "Name".PadRight(24),"URL".PadRight(45),"Status".PadLeft(7),"HTTP".PadLeft(5),"Latency".PadLeft(9)
+Add $webHdr
 Add "  $(HR '-' 95)"
 
 foreach ($url in $Config.WebURLs) {
     $r = $extURLTests[$url.Name]
     if (-not $r) { $r = $internalWebResults[$url.Name] }
     if ($r) {
-        $status = if ($r.Success) { "OK" } else { "FAIL" }
-        $line = "  $($url.Name.PadRight(24)) $($url.URL.PadRight(45)) $($status.PadLeft(7)) $([string]$r.StatusCode.PadLeft(5)) $("$($r.LatencyMs) ms".PadLeft(9))"
+        $wStatus = if ($r.Success) { "OK" } else { "FAIL" }
+        $line = "  {0} {1} {2} {3} {4}" -f `
+            $url.Name.PadRight(24), `
+            $url.URL.PadRight(45), `
+            $wStatus.PadLeft(7), `
+            ([string]$r.StatusCode).PadLeft(5), `
+            ("$($r.LatencyMs) ms").PadLeft(9)
         Add $line
         if (-not $r.Success -and $r.Error) {
-            Add "  $((' ' * 24)) ERROR: $($r.Error.Substring(0,[Math]::Min(80,$r.Error.Length)))"
+            $errTrunc2 = $r.Error.Substring(0,[Math]::Min(80,$r.Error.Length))
+            Add "  $(' ' * 24) ERROR: $errTrunc2"
         }
     }
 }
@@ -518,27 +546,44 @@ Add "  3.5  CLOUD PLATFORM AVAILABILITY — DETAILED"
 Add "$(HR '─')"
 Add ""
 
-Add "  ── Microsoft Teams ────────────────────────────────────────────────────────────"
-Add "     Connectivity Check : $(if($teamsConnTest.Success){'PASS'}else{'FAIL'})  HTTP $($teamsConnTest.StatusCode)  Latency: $($teamsConnTest.LatencyMs) ms"
-Add "     Web Client         : $(if($extURLTests['MS Teams Web'].Success){'PASS'}else{'FAIL'})  HTTP $($extURLTests['MS Teams Web'].StatusCode)  Latency: $($extURLTests['MS Teams Web'].LatencyMs) ms"
-Add "     DNS Resolution     : $(if($dnsResults['MS Teams'].Success){'PASS — '+$dnsResults['MS Teams'].IPs}else{'FAIL — '+$dnsResults['MS Teams'].Error})"
-Add "     Ping (avg/loss)    : $($pingResults['MS Teams'].Avg) ms  /  $($pingResults['MS Teams'].Loss)% loss"
-Add "     Admin Health URL   : https://admin.microsoft.com  → Health → Service health"
+Add "  -- Microsoft Teams ------------------------------------------------------------"
+$tConnStr  = if ($teamsConnTest.Success) {'PASS'} else {'FAIL'}
+$tWebStr   = if ($extURLTests['MS Teams Web'].Success) {'PASS'} else {'FAIL'}
+$tDNSEntry = $dnsResults['MS Teams']
+$tDNSStr   = if ($tDNSEntry -and $tDNSEntry.Success) { "PASS - $($tDNSEntry.IPs)" } else { "FAIL - $(if($tDNSEntry){$tDNSEntry.Error}else{'no result'})" }
+$tPingEntry= $pingResults['MS Teams']
+$tPingStr  = if ($tPingEntry) { "$($tPingEntry.Avg) ms  /  $($tPingEntry.Loss)% loss" } else { "N/A" }
+Add "     Connectivity Check : $tConnStr  HTTP $($teamsConnTest.StatusCode)  Latency: $($teamsConnTest.LatencyMs) ms"
+Add "     Web Client         : $tWebStr  HTTP $($extURLTests['MS Teams Web'].StatusCode)  Latency: $($extURLTests['MS Teams Web'].LatencyMs) ms"
+Add "     DNS Resolution     : $tDNSStr"
+Add "     Ping (avg/loss)    : $tPingStr"
+Add "     Admin Health URL   : https://admin.microsoft.com  -> Health -> Service health"
 Add ""
 
-Add "  ── Cisco Webex ────────────────────────────────────────────────────────────────"
-Add "     API Ping           : $(if($webexConnTest.Success){'PASS'}else{'FAIL'})  HTTP $($webexConnTest.StatusCode)  Latency: $($webexConnTest.LatencyMs) ms"
-Add "     Web Client         : $(if($extURLTests['Webex'].Success){'PASS'}else{'FAIL'})  HTTP $($extURLTests['Webex'].StatusCode)  Latency: $($extURLTests['Webex'].LatencyMs) ms"
-Add "     DNS Resolution     : $(if($dnsResults['Webex'].Success){'PASS — '+$dnsResults['Webex'].IPs}else{'FAIL — '+$dnsResults['Webex'].Error})"
-Add "     Ping (avg/loss)    : $($pingResults['Webex'].Avg) ms  /  $($pingResults['Webex'].Loss)% loss"
+Add "  -- Cisco Webex ---------------------------------------------------------------"
+$wxConnStr  = if ($webexConnTest.Success) {'PASS'} else {'FAIL'}
+$wxWebStr   = if ($extURLTests['Webex'].Success) {'PASS'} else {'FAIL'}
+$wxDNSEntry = $dnsResults['Webex']
+$wxDNSStr   = if ($wxDNSEntry -and $wxDNSEntry.Success) { "PASS - $($wxDNSEntry.IPs)" } else { "FAIL - $(if($wxDNSEntry){$wxDNSEntry.Error}else{'no result'})" }
+$wxPingEntry= $pingResults['Webex']
+$wxPingStr  = if ($wxPingEntry) { "$($wxPingEntry.Avg) ms  /  $($wxPingEntry.Loss)% loss" } else { "N/A" }
+Add "     API Ping           : $wxConnStr  HTTP $($webexConnTest.StatusCode)  Latency: $($webexConnTest.LatencyMs) ms"
+Add "     Web Client         : $wxWebStr  HTTP $($extURLTests['Webex'].StatusCode)  Latency: $($extURLTests['Webex'].LatencyMs) ms"
+Add "     DNS Resolution     : $wxDNSStr"
+Add "     Ping (avg/loss)    : $wxPingStr"
 Add "     Status Page        : https://status.webex.com"
 Add ""
 
-Add "  ── Microsoft 365 ──────────────────────────────────────────────────────────────"
-Add "     Portal Access      : $(if($m365Test.Success){'PASS'}else{'FAIL'})  HTTP $($m365Test.StatusCode)  Latency: $($m365Test.LatencyMs) ms"
-Add "     SharePoint         : $(if($extURLTests['SharePoint'].Success){'PASS'}else{'FAIL'})  HTTP $($extURLTests['SharePoint'].StatusCode)  Latency: $($extURLTests['SharePoint'].LatencyMs) ms"
-Add "     Office 365         : $(if($extURLTests['Office 365'].Success){'PASS'}else{'FAIL'})  HTTP $($extURLTests['Office 365'].StatusCode)  Latency: $($extURLTests['Office 365'].LatencyMs) ms"
-Add "     DNS (office.com)   : $(if($dnsResults['Office 365'].Success){'PASS — '+$dnsResults['Office 365'].IPs}else{'FAIL — '+$dnsResults['Office 365'].Error})"
+Add "  -- Microsoft 365 -------------------------------------------------------------"
+$m3ConnStr  = if ($m365Test.Success) {'PASS'} else {'FAIL'}
+$m3SpStr    = if ($extURLTests['SharePoint'].Success) {'PASS'} else {'FAIL'}
+$m3O365Str  = if ($extURLTests['Office 365'].Success) {'PASS'} else {'FAIL'}
+$m3DNSEntry = $dnsResults['Office 365']
+$m3DNSStr   = if ($m3DNSEntry -and $m3DNSEntry.Success) { "PASS - $($m3DNSEntry.IPs)" } else { "FAIL - $(if($m3DNSEntry){$m3DNSEntry.Error}else{'no result'})" }
+Add "     Portal Access      : $m3ConnStr  HTTP $($m365Test.StatusCode)  Latency: $($m365Test.LatencyMs) ms"
+Add "     SharePoint         : $m3SpStr  HTTP $($extURLTests['SharePoint'].StatusCode)  Latency: $($extURLTests['SharePoint'].LatencyMs) ms"
+Add "     Office 365         : $m3O365Str  HTTP $($extURLTests['Office 365'].StatusCode)  Latency: $($extURLTests['Office 365'].LatencyMs) ms"
+Add "     DNS (office.com)   : $m3DNSStr"
 Add "     Status Page        : https://status.office365.com"
 Add ""
 
@@ -566,13 +611,26 @@ Write-Host "$(HR '═' 80)" -ForegroundColor Green
 Write-Host ""
 
 # Quick summary to console
+$sumLocal = if ($localNetOK)    { "OK" } else { "ISSUE DETECTED" }
+$sumInt   = if ($internalSvcOK) { "OK" } else { "ISSUE DETECTED" }
+$sumInet  = if ($internetSvcOK) { "OK" } else { "ISSUE DETECTED" }
+$sumTeams = if ($teamsConnOK)   { "OK" } else { "ISSUE DETECTED" }
+$sumWebex = if ($webexConnOK)   { "OK" } else { "ISSUE DETECTED" }
+$sumM365  = if ($m365OK)        { "OK" } else { "ISSUE DETECTED" }
+$colLocal = if ($localNetOK)    { "Green" } else { "Red" }
+$colInt   = if ($internalSvcOK) { "Green" } else { "Red" }
+$colInet  = if ($internetSvcOK) { "Green" } else { "Red" }
+$colTeams = if ($teamsConnOK)   { "Green" } else { "Red" }
+$colWebex = if ($webexConnOK)   { "Green" } else { "Red" }
+$colM365  = if ($m365OK)        { "Green" } else { "Red" }
+
 Write-Host "  SUMMARY" -ForegroundColor Yellow
-Write-Host "  Local Network  : $(if($localNetOK){'OK'}else{'ISSUE DETECTED'})"     -ForegroundColor $(if($localNetOK){'Green'}else{'Red'})
-Write-Host "  Internal Svcs  : $(if($internalSvcOK){'OK'}else{'ISSUE DETECTED'})"  -ForegroundColor $(if($internalSvcOK){'Green'}else{'Red'})
-Write-Host "  Internet Svcs  : $(if($internetSvcOK){'OK'}else{'ISSUE DETECTED'})"  -ForegroundColor $(if($internetSvcOK){'Green'}else{'Red'})
-Write-Host "  MS Teams       : $(if($teamsConnOK){'OK'}else{'ISSUE DETECTED'})"    -ForegroundColor $(if($teamsConnOK){'Green'}else{'Red'})
-Write-Host "  Cisco Webex    : $(if($webexConnOK){'OK'}else{'ISSUE DETECTED'})"    -ForegroundColor $(if($webexConnOK){'Green'}else{'Red'})
-Write-Host "  M365           : $(if($m365OK){'OK'}else{'ISSUE DETECTED'})"         -ForegroundColor $(if($m365OK){'Green'}else{'Red'})
+Write-Host "  Local Network  : $sumLocal"  -ForegroundColor $colLocal
+Write-Host "  Internal Svcs  : $sumInt"    -ForegroundColor $colInt
+Write-Host "  Internet Svcs  : $sumInet"   -ForegroundColor $colInet
+Write-Host "  MS Teams       : $sumTeams"  -ForegroundColor $colTeams
+Write-Host "  Cisco Webex    : $sumWebex"  -ForegroundColor $colWebex
+Write-Host "  M365           : $sumM365"   -ForegroundColor $colM365
 Write-Host ""
 
 #endregion
