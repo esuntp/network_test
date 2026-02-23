@@ -247,8 +247,8 @@ function Write-PingRow {
 
 # DNS result block writer (used in Section 3.4)
 function Write-DNSBlock {
-    param([string]$Name, [string]$Host, [hashtable]$R)
-    RL "  $Name  ($Host)"
+    param([string]$Name, [string]$TargetHost, [hashtable]$R)
+    RL "  $Name  ($TargetHost)"
     if ($R -and $R.OK) {
         RL "    Result : OK"
         RL "    IPs    : $($R.IPs)"
@@ -299,10 +299,20 @@ Write-Host "|         NETWORK TEST TOOL  -  Multi-Level Support Report          
 Write-Host "+================================================================================+" -ForegroundColor Yellow
 Write-Host ""
 
-# Total steps = fixed steps + one per test entry
-$fixedSteps  = 5
-$totalSteps  = $fixedSteps + $Cfg.InternalPing.Count + $Cfg.ExternalPing.Count +
-               $Cfg.InternalWeb.Count + $Cfg.ExternalWeb.Count
+# Resolve AUTO placeholders before counting steps, so the count is accurate
+foreach ($entry in $Cfg.InternalPing) {
+    if ($entry.Value -eq "AUTO") {
+        if   ($entry.Name -like "*Gateway*" -and $gateway  -ne "N/A") { $entry.Value = $gateway }
+        elseif ($entry.Name -like "*DNS*"   -and $firstDNS)            { $entry.Value = $firstDNS }
+        else  { $entry.Value = $null }
+    }
+}
+
+# Fixed steps: 1 sys info, 2 adapters, 3 LLDP, 4 local net, 5 route table, 6 save
+$fixedSteps     = 6
+$resolvedIntPin = ($Cfg.InternalPing | Where-Object { $_.Value }).Count
+$totalSteps     = $fixedSteps + $resolvedIntPin + $Cfg.ExternalPing.Count +
+                  $Cfg.InternalWeb.Count + $Cfg.ExternalWeb.Count
 $step = 0
 $act  = "Network Test Tool"
 
@@ -328,14 +338,6 @@ $dnsServers  = if ($activeConfig) { ($activeConfig.DNSServer | Where-Object { $_
 $primaryMAC  = if ($activeConfig) { ($allAdapters | Where-Object { $_.Name -eq $activeConfig.InterfaceAlias } | Select-Object -First 1).MacAddress } else { "N/A" }
 $firstDNS    = if ($activeConfig) { ($activeConfig.DNSServer | Where-Object { $_.AddressFamily -eq 2 } | Select-Object -First 1 -ExpandProperty ServerAddresses) } else { $null }
 
-# Resolve AUTO placeholders in InternalPing
-foreach ($entry in $Cfg.InternalPing) {
-    if ($entry.Value -eq "AUTO") {
-        if   ($entry.Name -like "*Gateway*" -and $gateway  -ne "N/A") { $entry.Value = $gateway }
-        elseif ($entry.Name -like "*DNS*"   -and $firstDNS)            { $entry.Value = $firstDNS }
-        else  { $entry.Value = $null }
-    }
-}
 
 # Step 3 - LLDP
 $step++; Show-Step $step $totalSteps $act "Querying switch/port information..."
@@ -353,8 +355,8 @@ $intDNSResults = @{}
 foreach ($entry in $Cfg.InternalWeb) {
     $step++; Show-Step $step $totalSteps $act "Internal web: $($entry.Name)..."
     $intWebResults[$entry.Name] = Invoke-WebTest $entry.Value $Cfg.WebTimeoutSec
-    $h = try { ([System.Uri]$entry.Value).Host } catch { $entry.Value }
-    $intDNSResults[$entry.Name] = Invoke-DNSTest $h
+    $uriHost = try { ([System.Uri]$entry.Value).Host } catch { $entry.Value }
+    $intDNSResults[$entry.Name] = Invoke-DNSTest $uriHost
 }
 
 # External web tests (one step each)
@@ -399,7 +401,8 @@ $routeTable = Get-NetRoute -ErrorAction SilentlyContinue | Sort-Object RouteMetr
 #region Report Builder
 
 $localNetOK    = $gwPing.OK -and $dnsPing.OK -and $nsTest.OK
-$internalSvcOK = ($intWebResults.Values | Where-Object { $_.OK }).Count -gt 0
+$internalSvcOK = (($intWebResults.Values  | Where-Object { $_.OK }).Count -gt 0) -or
+                 (($intPingResults.Values  | Where-Object { $_.OK }).Count -gt 0)
 $internetSvcOK = ($extWebResults.Values | Where-Object { $_.OK }).Count -gt 0
 
 # ============================================================  SECTION 1
@@ -445,13 +448,30 @@ RL "  INTERNAL SERVICES"
 RL (HR "-")
 $iBadge = if ($internalSvcOK) { "[ OK    ]" } else { "[ ERROR ]" }
 RL "  $iBadge  Internal Services"
-foreach ($entry in $Cfg.InternalWeb) {
-    $dR    = $intDNSResults[$entry.Name]
-    $wR    = $intWebResults[$entry.Name]
-    $label = $entry.Name.PadRight(18)
-    $dStr  = if ($dR -and $dR.OK) { "DNS OK ($($dR.IPs))" } else { "DNS FAIL$(if ($dR -and $dR.Error) { ": $($dR.Error.Substring(0,[Math]::Min(40,$dR.Error.Length)))" })" }
-    $wStr  = if ($wR -and $wR.OK) { "Web OK HTTP $($wR.Code) $($wR.Ms)ms" } else { "Web FAIL HTTP $(if ($wR) { $wR.Code } else { '?' })" }
-    RL "    $label  $dStr  |  $wStr"
+RL ""
+if ($Cfg.InternalPing.Count -gt 0) {
+    RL "    Ping targets:"
+    foreach ($entry in $Cfg.InternalPing) {
+        if (-not $entry.Value) { continue }
+        $pR    = $intPingResults[$entry.Name]
+        $label = $entry.Name.PadRight(22)
+        $pTag  = Get-PingTag $pR
+        $pStr  = if ($pR -and $pR.OK) { "OK   avg $($pR.Avg)ms  loss $($pR.Loss)%" } else { "FAIL - unreachable" }
+        RL "      $label  $pStr  $pTag"
+    }
+    RL ""
+}
+if ($Cfg.InternalWeb.Count -gt 0) {
+    RL "    Web targets:"
+    foreach ($entry in $Cfg.InternalWeb) {
+        $dR    = $intDNSResults[$entry.Name]
+        $wR    = $intWebResults[$entry.Name]
+        $label = $entry.Name.PadRight(22)
+        $dStr  = if ($dR -and $dR.OK) { "DNS OK" } else { "DNS FAIL" }
+        $wStr  = if ($wR -and $wR.OK) { "Web OK  HTTP $($wR.Code)  $($wR.Ms)ms" } else { "Web FAIL HTTP $(if ($wR) { $wR.Code } else { '?' })" }
+        $wTag  = Get-WebTag $wR
+        RL "      $label  $dStr  |  $wStr  $wTag"
+    }
 }
 RL ""
 
@@ -558,9 +578,9 @@ foreach ($entry in $Cfg.InternalPing) {
 }
 RL "  -- Internal Web Targets --"
 foreach ($entry in $Cfg.InternalWeb) {
-    $h = try { ([System.Uri]$entry.Value).Host } catch { $entry.Value }
+    $uriHost2 = try { ([System.Uri]$entry.Value).Host } catch { $entry.Value }
     $r = $intDNSResults[$entry.Name]
-    if ($r) { Write-DNSBlock $entry.Name $h $r }
+    if ($r) { Write-DNSBlock $entry.Name $uriHost2 $r }
 }
 RL "  -- External Ping Targets --"
 foreach ($entry in $Cfg.ExternalPing) {
