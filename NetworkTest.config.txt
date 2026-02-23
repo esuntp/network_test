@@ -1,0 +1,91 @@
+# =============================================================================
+#  NetworkTest.config.txt  -  Configuration for NetworkTest.ps1
+#
+#  FORMAT RULES
+#  - Lines starting with # are comments and are ignored
+#  - Blank lines are ignored
+#  - Settings use:        KEY = VALUE
+#  - Ping targets use:    ping | Friendly Name | hostname-or-IP
+#  - Web targets use:     web  | Friendly Name | https://full-url
+#  - Sections are marked with [SectionName] headers
+#  - Order within each section does not matter
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+[Settings]
+# -----------------------------------------------------------------------------
+#
+#  PING TEST BEHAVIOUR
+PingCount         = 10       # packets sent per target
+PingTimeoutMs     = 2000     # ms to wait for each reply
+#
+#  LATENCY THRESHOLDS  (0 = disabled)
+#  Results outside these are flagged WARN or FAIL in the report
+PingWarnMs        = 50       # avg RTT warn  threshold (ms)
+PingFailMs        = 150      # avg RTT fail  threshold (ms)
+PingLossWarnPct   = 2        # packet loss   warn threshold (%)
+PingLossFailPct   = 10       # packet loss   fail threshold (%)
+#
+#  WEB TEST BEHAVIOUR
+WebTimeoutSec     = 15       # seconds to wait for HTTP response
+WebWarnMs         = 800      # response time warn threshold (ms)
+WebFailMs         = 3000     # response time fail threshold (ms)
+#
+#  NSLOOKUP CHECK  (used in Section 2 local network test)
+NslookupDomain    = test.domain
+
+
+# -----------------------------------------------------------------------------
+[InternalPing]
+#  Targets for ping + DNS in Section 2 (summary) and Section 3 (detail)
+#  The first two rows are filled automatically at runtime - leave host as AUTO
+#  Format:  ping | Friendly Name | hostname-or-IP
+# -----------------------------------------------------------------------------
+
+ping | Default Gateway   | AUTO
+ping | Primary DNS       | AUTO
+ping | test1.local       | test1.local
+ping | test2.local       | test2.local
+ping | File Server       | fileserver.local
+ping | Domain Controller | dc01.local
+
+
+# -----------------------------------------------------------------------------
+[ExternalPing]
+#  External targets for ping + DNS in Section 3 (detail only)
+#  Format:  ping | Friendly Name | hostname-or-IP
+# -----------------------------------------------------------------------------
+
+ping | Google Public DNS  | 8.8.8.8
+ping | Cloudflare DNS     | 1.1.1.1
+ping | Google             | google.com
+ping | Office 365         | office.com
+ping | SharePoint         | sharepoint.com
+ping | MS Teams           | teams.microsoft.com
+ping | Webex              | webex.com
+
+
+# -----------------------------------------------------------------------------
+[InternalWeb]
+#  Internal HTTP targets shown in Section 2 helpdesk summary
+#  Format:  web | Friendly Name | http://full-url
+# -----------------------------------------------------------------------------
+
+web | test1.local  | http://test1.local
+web | test2.local  | http://test2.local
+web | Intranet     | http://intranet.local
+
+
+# -----------------------------------------------------------------------------
+[ExternalWeb]
+#  External HTTP targets shown in Section 2 internet summary and Section 3
+#  Format:  web | Friendly Name | https://full-url
+# -----------------------------------------------------------------------------
+
+web | Google       | https://www.google.com
+web | Office 365   | https://www.office.com
+web | SharePoint   | https://www.sharepoint.com
+web | MS Teams     | https://teams.microsoft.com
+web | Webex        | https://www.webex.com
+web | Azure Portal | https://portal.azure.com
