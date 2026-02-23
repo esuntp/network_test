@@ -12,43 +12,38 @@
 
 #region ── Configuration ──────────────────────────────────────────────────────
 
+# Load external config file from same directory as this script
+$configFile = Join-Path $PSScriptRoot "NetworkTest.config.ps1"
+if (-not (Test-Path $configFile)) {
+    Write-Host ""
+    Write-Host "  [ERROR] Config file not found: $configFile" -ForegroundColor Red
+    Write-Host "  Place NetworkTest.config.ps1 in the same folder as this script." -ForegroundColor Red
+    Write-Host ""
+    exit 1
+}
+. $configFile   # dot-source to load all $cfg_* variables into current scope
+
+# Assemble into a single Config object for use throughout the script
 $Config = @{
-    # Internal targets (DNS name + IP)
-    InternalHosts = @(
-        @{ Name = "Default Gateway";   Host = $null }          # resolved at runtime
-        @{ Name = "DC / DNS Server";   Host = $null }          # resolved at runtime
-        @{ Name = "test1.local";       Host = "test1.local" }
-        @{ Name = "test2.local";       Host = "test2.local" }
-    )
-    # External targets
-    ExternalHosts = @(
-        @{ Name = "Google DNS";        Host = "8.8.8.8" }
-        @{ Name = "Google";            Host = "google.com" }
-        @{ Name = "Office 365";        Host = "office.com" }
-        @{ Name = "SharePoint";        Host = "sharepoint.com" }
-        @{ Name = "MS Teams";          Host = "teams.microsoft.com" }
-        @{ Name = "Webex";             Host = "webex.com" }
-    )
-    # Web URLs to test
-    WebURLs = @(
-        @{ Name = "Google";            URL = "https://www.google.com" }
-        @{ Name = "Office 365";        URL = "https://www.office.com" }
-        @{ Name = "SharePoint";        URL = "https://www.sharepoint.com" }
-        @{ Name = "MS Teams Web";      URL = "https://teams.microsoft.com" }
-        @{ Name = "Webex";             URL = "https://www.webex.com" }
-        @{ Name = "test1.local";       URL = "http://test1.local" }
-        @{ Name = "test2.local";       URL = "http://test2.local" }
-    )
-    # Internal web services for Section 2
-    InternalWebURLs = @(
-        @{ Name = "test1.local";       URL = "http://test1.local" }
-        @{ Name = "test2.local";       URL = "http://test2.local" }
-    )
-    # nslookup test domain for Section 2
-    NslookupTestDomain = "test.domain"
-    PingCount          = 10
-    PingTimeoutMs      = 2000
-    WebTimeoutSec      = 15
+    InternalHosts        = $cfg_InternalHosts
+    ExternalHosts        = $cfg_ExternalHosts
+    InternalWebURLs      = $cfg_InternalWebURLs
+    ExternalWebURLs      = $cfg_ExternalWebURLs
+    CloudPlatforms       = $cfg_CloudPlatforms
+    InternetSummaryNames = $cfg_InternetSummaryNames
+    NslookupTestDomain   = $cfg_NslookupTestDomain
+    PingCount            = $cfg_PingCount
+    PingTimeoutMs        = $cfg_PingTimeoutMs
+    WebTimeoutSec        = $cfg_WebTimeoutSec
+    # Thresholds
+    PingLatencyWarnMs    = $cfg_PingLatencyWarnMs
+    PingLatencyFailMs    = $cfg_PingLatencyFailMs
+    PingJitterWarnMs     = $cfg_PingJitterWarnMs
+    PingJitterFailMs     = $cfg_PingJitterFailMs
+    PingLossWarnPct      = $cfg_PingLossWarnPct
+    PingLossFailPct      = $cfg_PingLossFailPct
+    WebLatencyWarnMs     = $cfg_WebLatencyWarnMs
+    WebLatencyFailMs     = $cfg_WebLatencyFailMs
 }
 
 #endregion
@@ -186,6 +181,27 @@ function StatusBadge {
     else      { return "[ ERROR ] $errMsg" }
 }
 
+function Get-PingThresholdTag {
+    param([hashtable]$r)
+    if (-not $r.Reachable) { return "[FAIL]" }
+    $tag = "[OK]"
+    if ($Config.PingLatencyFailMs -gt 0 -and $r.Avg -ne "N/A" -and [double]$r.Avg -ge $Config.PingLatencyFailMs) { $tag = "[FAIL] Latency ${$r.Avg}ms exceeds ${$Config.PingLatencyFailMs}ms limit" }
+    elseif ($Config.PingLossFailPct -gt 0 -and $r.Loss -ge $Config.PingLossFailPct)    { $tag = "[FAIL] Loss $($r.Loss)% exceeds $($Config.PingLossFailPct)% limit" }
+    elseif ($Config.PingJitterFailMs -gt 0 -and $r.Jitter -ne "N/A" -and [double]$r.Jitter -ge $Config.PingJitterFailMs) { $tag = "[FAIL] Jitter $($r.Jitter)ms exceeds $($Config.PingJitterFailMs)ms limit" }
+    elseif ($Config.PingLatencyWarnMs -gt 0 -and $r.Avg -ne "N/A" -and [double]$r.Avg -ge $Config.PingLatencyWarnMs) { $tag = "[WARN] Latency $($r.Avg)ms exceeds $($Config.PingLatencyWarnMs)ms threshold" }
+    elseif ($Config.PingLossWarnPct -gt 0 -and $r.Loss -ge $Config.PingLossWarnPct)    { $tag = "[WARN] Loss $($r.Loss)% exceeds $($Config.PingLossWarnPct)% threshold" }
+    elseif ($Config.PingJitterWarnMs -gt 0 -and $r.Jitter -ne "N/A" -and [double]$r.Jitter -ge $Config.PingJitterWarnMs) { $tag = "[WARN] Jitter $($r.Jitter)ms exceeds $($Config.PingJitterWarnMs)ms threshold" }
+    return $tag
+}
+
+function Get-WebThresholdTag {
+    param([hashtable]$r)
+    if (-not $r -or -not $r.Success) { return "[FAIL]" }
+    if ($Config.WebLatencyFailMs -gt 0 -and $r.LatencyMs -ge $Config.WebLatencyFailMs) { return "[FAIL] $($r.LatencyMs)ms exceeds $($Config.WebLatencyFailMs)ms limit" }
+    if ($Config.WebLatencyWarnMs -gt 0 -and $r.LatencyMs -ge $Config.WebLatencyWarnMs) { return "[WARN] $($r.LatencyMs)ms exceeds $($Config.WebLatencyWarnMs)ms threshold" }
+    return "[OK]"
+}
+
 #endregion
 
 #region ── Main Script ────────────────────────────────────────────────────────
@@ -254,20 +270,24 @@ $internalWebResults = @{}
 foreach ($url in $Config.InternalWebURLs) {
     $internalWebResults[$url.Name] = Test-WebURL -URL $url.URL -TimeoutSec $Config.WebTimeoutSec
 }
-$intDNS1 = Get-DNSLookup "test1.local"
-$intDNS2 = Get-DNSLookup "test2.local"
+# DNS lookup for each internal web target
+$internalDNSResults = @{}
+foreach ($url in $Config.InternalWebURLs) {
+    $host = ([System.Uri]$url.URL).Host
+    $internalDNSResults[$url.Name] = Get-DNSLookup $host
+}
 
-$step++; Write-Progress-Step $step $totalSteps $activity "Testing internet services (Teams, SharePoint, Google)..."
+$step++; Write-Progress-Step $step $totalSteps $activity "Testing internet services..."
 $extURLTests = @{}
-foreach ($url in $Config.WebURLs) {
+foreach ($url in $Config.ExternalWebURLs) {
     $extURLTests[$url.Name] = Test-WebURL -URL $url.URL -TimeoutSec $Config.WebTimeoutSec
 }
 
 # Section 2 overall statuses
 $localNetOK    = $gwPing.Reachable -and $dnsPing.Reachable -and $nsTest.Success
-$internalSvcOK = $intDNS1.Success -and $intDNS2.Success -and
-                 ($internalWebResults["test1.local"].Success -or $internalWebResults["test2.local"].Success)
-$internetOK    = $extURLTests["Google"].Success -or $extURLTests["Office 365"].Success
+$internalSvcOK = ($internalDNSResults.Values | Where-Object { $_.Success }).Count -gt 0 -and
+                 ($internalWebResults.Values  | Where-Object { $_.Success }).Count -gt 0
+$internetOK    = ($Config.InternetSummaryNames | Where-Object { $extURLTests[$_] -and $extURLTests[$_].Success }).Count -gt 0
 
 #── Section 3 Tests ────────────────────────────────────────────────────────────
 $step++; Write-Progress-Step $step $totalSteps $activity "Collecting all network interface details..."
@@ -295,15 +315,13 @@ foreach ($t in $allTargets) {
 $step++; Write-Progress-Step $step $totalSteps $activity "Running detailed web access tests..."
 # extURLTests already populated above; re-use
 
-$step++; Write-Progress-Step $step $totalSteps $activity "Testing MS Teams connectivity..."
-# Teams has a native connectivity test endpoint
-$teamsConnTest = Test-WebURL -URL "https://connectivity.teams.microsoft.com/api/check" -TimeoutSec $Config.WebTimeoutSec
-
-$step++; Write-Progress-Step $step $totalSteps $activity "Testing Webex connectivity..."
-$webexConnTest = Test-WebURL -URL "https://api.ciscospark.com/v1/ping" -TimeoutSec $Config.WebTimeoutSec
-
-$step++; Write-Progress-Step $step $totalSteps $activity "Testing Microsoft 365 endpoints..."
-$m365Test = Test-WebURL -URL "https://www.office.com" -TimeoutSec $Config.WebTimeoutSec
+$step++; Write-Progress-Step $step $totalSteps $activity "Testing cloud platform connectivity endpoints..."
+$cloudConnTests = @{}
+foreach ($platform in $Config.CloudPlatforms) {
+    if ($platform.ConnectURL -ne "") {
+        $cloudConnTests[$platform.Name] = Test-WebURL -URL $platform.ConnectURL -TimeoutSec $Config.WebTimeoutSec
+    }
+}
 
 #── Build Report ───────────────────────────────────────────────────────────────
 $step++; Write-Progress-Step $step $totalSteps $activity "Building report..."
@@ -371,38 +389,32 @@ Add "$(HR '-')"
 Add "  INTERNAL SERVICES"
 Add "$(HR '-')"
 
-$int1DNS = if ($intDNS1.Success) { "OK -> $($intDNS1.IPs)" } else { "FAIL - $($intDNS1.Error)" }
-$int2DNS = if ($intDNS2.Success) { "OK -> $($intDNS2.IPs)" } else { "FAIL - $($intDNS2.Error)" }
-$int1Web = $internalWebResults["test1.local"]
-$int2Web = $internalWebResults["test2.local"]
-$int1WebStr = if ($int1Web.Success) { "OK (HTTP $($int1Web.StatusCode), $($int1Web.LatencyMs) ms)" } else { "FAIL (HTTP $($int1Web.StatusCode)) - $($int1Web.Error)" }
-$int2WebStr = if ($int2Web.Success) { "OK (HTTP $($int2Web.StatusCode), $($int2Web.LatencyMs) ms)" } else { "FAIL (HTTP $($int2Web.StatusCode)) - $($int2Web.Error)" }
-
 $intBadge = StatusBadge $internalSvcOK
 Add "  $intBadge  Internal Services"
-Add "    test1.local DNS  : $int1DNS"
-Add "    test1.local Web  : $int1WebStr"
-Add "    test2.local DNS  : $int2DNS"
-Add "    test2.local Web  : $int2WebStr"
+foreach ($url in $Config.InternalWebURLs) {
+    $dnsR = $internalDNSResults[$url.Name]
+    $webR = $internalWebResults[$url.Name]
+    $dnsStr = if ($dnsR -and $dnsR.Success) { "OK -> $($dnsR.IPs)" } else { "FAIL - $(if($dnsR){$dnsR.Error}else{'no result'})" }
+    $webStr = if ($webR -and $webR.Success) { "OK (HTTP $($webR.StatusCode), $($webR.LatencyMs) ms)" } else { "FAIL (HTTP $(if($webR){$webR.StatusCode}else{0})) - $(if($webR){$webR.Error}else{'no result'})" }
+    $label = $url.Name.PadRight(20)
+    Add "    $label DNS : $dnsStr"
+    Add "    $label Web : $webStr"
+}
 Add ""
 
 Add "$(HR '-')"
 Add "  INTERNET SERVICES"
 Add "$(HR '-')"
 
-$googleOK    = $extURLTests["Google"].Success
-$sharepointOK= $extURLTests["SharePoint"].Success
-$teamsOK     = $extURLTests["MS Teams Web"].Success
-$internetSvcOK = $googleOK -or $sharepointOK -or $teamsOK
-
-foreach ($url in @("Google","Office 365","SharePoint","MS Teams Web","Webex")) {
-    $r = $extURLTests[$url]
+$internetSvcOK = ($Config.InternetSummaryNames | Where-Object { $extURLTests[$_] -and $extURLTests[$_].Success }).Count -gt 0
+foreach ($name in $Config.InternetSummaryNames) {
+    $r = $extURLTests[$name]
     if ($r) {
-        $badge = StatusBadge $r.Success
+        $badge   = StatusBadge $r.Success
         $errTrunc = if ($r.Error) { $r.Error.Substring(0,[Math]::Min(60,$r.Error.Length)) } else { "" }
-        $str = if ($r.Success) { "OK (HTTP $($r.StatusCode), $($r.LatencyMs) ms)" } else { "FAIL (HTTP $($r.StatusCode)) - $errTrunc" }
-        $urlPad = $url.PadRight(20)
-        Add "  $badge  $urlPad $str"
+        $str     = if ($r.Success) { "OK (HTTP $($r.StatusCode), $($r.LatencyMs) ms)" } else { "FAIL (HTTP $($r.StatusCode)) - $errTrunc" }
+        $namePad = $name.PadRight(20)
+        Add "  $badge  $namePad $str"
     }
 }
 Add ""
@@ -411,21 +423,21 @@ Add "$(HR '-')"
 Add "  CLOUD PLATFORM AVAILABILITY"
 Add "$(HR '-')"
 
-$teamsConnOK = $teamsConnTest.Success
-$webexConnOK = $webexConnTest.Success
-$m365OK      = $m365Test.Success
-
-$teamsBadge = StatusBadge $teamsConnOK
-$webexBadge = StatusBadge $webexConnOK
-$m365Badge  = StatusBadge $m365OK
-
-Add "  $teamsBadge  MS Teams   - Connectivity endpoint: HTTP $($teamsConnTest.StatusCode), $($teamsConnTest.LatencyMs) ms"
-Add "  $webexBadge  Cisco Webex- API ping:              HTTP $($webexConnTest.StatusCode), $($webexConnTest.LatencyMs) ms"
-Add "  $m365Badge  M365       - Portal access:          HTTP $($m365Test.StatusCode), $($m365Test.LatencyMs) ms"
+foreach ($platform in $Config.CloudPlatforms) {
+    $connR  = $cloudConnTests[$platform.Name]
+    $webR   = $extURLTests[$platform.WebURLName]
+    $connOK = if ($connR) { $connR.Success } elseif ($webR) { $webR.Success } else { $false }
+    $badge  = StatusBadge $connOK
+    $detail = if ($connR) {
+        "Connectivity check: HTTP $($connR.StatusCode), $($connR.LatencyMs) ms"
+    } elseif ($webR) {
+        "Web access: HTTP $($webR.StatusCode), $($webR.LatencyMs) ms"
+    } else { "No test result" }
+    $platPad = $platform.Name.PadRight(22)
+    Add "  $badge  $platPad $detail"
+}
 Add ""
-Add "  TIP: For authoritative service health, check:"
-Add "       Teams/M365 : https://admin.microsoft.com  ->  Health -> Service health"
-Add "       Webex       : https://status.webex.com"
+Add "  TIP: Check each platform status page (listed in Section 3.6) for authoritative health info."
 Add ""
 
 # ─── SECTION 3 ─────────────────────────────────────────────────────────────────
@@ -485,15 +497,16 @@ Add "$(HR '-')"
 Add "  3.3  DETAILED PING RESULTS  ($($Config.PingCount) packets per target)"
 Add "$(HR '-')"
 Add ""
-$pingHdr = "  {0} {1} {2} {3} {4} {5} {6} {7}" -f "Target".PadRight(35),"Sent".PadLeft(4),"Recv".PadLeft(4),"Loss%".PadLeft(6),"Min ms".PadLeft(7),"Avg ms".PadLeft(7),"Max ms".PadLeft(7),"Jitter".PadLeft(7)
+$pingHdr = "  {0} {1} {2} {3} {4} {5} {6} {7}  {8}" -f "Target".PadRight(35),"Sent".PadLeft(4),"Recv".PadLeft(4),"Loss%".PadLeft(6),"Min ms".PadLeft(7),"Avg ms".PadLeft(7),"Max ms".PadLeft(7),"Jitter".PadLeft(7),"Status"
 Add $pingHdr
-Add "  $(HR '-' 80)"
+Add "  $(HR '-' 100)"
 
 foreach ($t in $allTargets) {
     $name = $t.Name
     $r = $pingResults[$name]
     if ($r) {
-        $line = "  {0} {1} {2} {3} {4} {5} {6} {7}" -f `
+        $tag  = Get-PingThresholdTag $r
+        $line = "  {0} {1} {2} {3} {4} {5} {6} {7}  {8}" -f `
             $name.PadRight(35), `
             ([string]$r.Sent).PadLeft(4), `
             ([string]$r.Recv).PadLeft(4), `
@@ -501,7 +514,8 @@ foreach ($t in $allTargets) {
             ([string]$r.Min).PadLeft(7), `
             ([string]$r.Avg).PadLeft(7), `
             ([string]$r.Max).PadLeft(7), `
-            ([string]$r.Jitter).PadLeft(7)
+            ([string]$r.Jitter).PadLeft(7), `
+            $tag
         Add $line
     }
 }
@@ -538,21 +552,23 @@ Add "$(HR '-')"
 Add "  3.5  WEB ACCESS TESTS"
 Add "$(HR '-')"
 Add ""
-$webHdr = "  {0} {1} {2} {3} {4}" -f "Name".PadRight(24),"URL".PadRight(45),"Status".PadLeft(7),"HTTP".PadLeft(5),"Latency".PadLeft(9)
+$webHdr = "  {0} {1} {2} {3} {4}  {5}" -f "Name".PadRight(24),"URL".PadRight(45),"Status".PadLeft(7),"HTTP".PadLeft(5),"Latency".PadLeft(9),"Threshold"
 Add $webHdr
-Add "  $(HR '-' 95)"
+Add "  $(HR '-' 105)"
 
-foreach ($url in $Config.WebURLs) {
-    $r = $extURLTests[$url.Name]
-    if (-not $r) { $r = $internalWebResults[$url.Name] }
+foreach ($url in ($Config.InternalWebURLs + $Config.ExternalWebURLs)) {
+    $r = $internalWebResults[$url.Name]
+    if (-not $r) { $r = $extURLTests[$url.Name] }
     if ($r) {
         $wStatus = if ($r.Success) { "OK" } else { "FAIL" }
-        $line = "  {0} {1} {2} {3} {4}" -f `
+        $tag     = Get-WebThresholdTag $r
+        $line = "  {0} {1} {2} {3} {4}  {5}" -f `
             $url.Name.PadRight(24), `
             $url.URL.PadRight(45), `
             $wStatus.PadLeft(7), `
             ([string]$r.StatusCode).PadLeft(5), `
-            ("$($r.LatencyMs) ms").PadLeft(9)
+            ("$($r.LatencyMs) ms").PadLeft(9), `
+            $tag
         Add $line
         if (-not $r.Success -and $r.Error) {
             $errTrunc2 = $r.Error.Substring(0,[Math]::Min(80,$r.Error.Length))
@@ -569,43 +585,51 @@ Add "$(HR '-')"
 Add ""
 
 Add "  -- Microsoft Teams ------------------------------------------------------------"
-$tConnStr  = if ($teamsConnTest.Success) {'PASS'} else {'FAIL'}
-$tWebStr   = if ($extURLTests['MS Teams Web'].Success) {'PASS'} else {'FAIL'}
+$tConnStr  = if ($cloudConnTests['Microsoft Teams']) { if ($cloudConnTests['Microsoft Teams'].Success) {'PASS'} else {'FAIL'} } else { 'N/A' }
+$tConnHTTP = if ($cloudConnTests['Microsoft Teams']) { $cloudConnTests['Microsoft Teams'].StatusCode } else { '-' }
+$tConnMs   = if ($cloudConnTests['Microsoft Teams']) { $cloudConnTests['Microsoft Teams'].LatencyMs } else { '-' }
+$tWebR     = $extURLTests['MS Teams Web']
+$tWebStr   = if ($tWebR) { if ($tWebR.Success) {'PASS'} else {'FAIL'} } else { 'N/A' }
 $tDNSEntry = $dnsResults['MS Teams']
-$tDNSStr   = if ($tDNSEntry -and $tDNSEntry.Success) { "PASS - $($tDNSEntry.IPs)" } else { "FAIL - $(if($tDNSEntry){$tDNSEntry.Error}else{'no result'})" }
+$tDNSStr   = if ($tDNSEntry -and $tDNSEntry.Success) { "PASS - $($tDNSEntry.IPs)" } else { "FAIL - $(if($tDNSEntry){$tDNSEntry.Error}else{'not tested'})" }
 $tPingEntry= $pingResults['MS Teams']
-$tPingStr  = if ($tPingEntry) { "$($tPingEntry.Avg) ms  /  $($tPingEntry.Loss)% loss" } else { "N/A" }
-Add "     Connectivity Check : $tConnStr  HTTP $($teamsConnTest.StatusCode)  Latency: $($teamsConnTest.LatencyMs) ms"
-Add "     Web Client         : $tWebStr  HTTP $($extURLTests['MS Teams Web'].StatusCode)  Latency: $($extURLTests['MS Teams Web'].LatencyMs) ms"
+$tPingStr  = if ($tPingEntry) { "$($tPingEntry.Avg) ms avg  /  $($tPingEntry.Loss)% loss" } else { "not tested" }
+Add "     Connectivity Check : $tConnStr  HTTP $tConnHTTP  Latency: $tConnMs ms"
+Add "     Web Access         : $tWebStr  HTTP $(if($tWebR){$tWebR.StatusCode}else{'-'})  Latency: $(if($tWebR){$tWebR.LatencyMs}else{'-'}) ms"
 Add "     DNS Resolution     : $tDNSStr"
 Add "     Ping (avg/loss)    : $tPingStr"
-Add "     Admin Health URL   : https://admin.microsoft.com  -> Health -> Service health"
+Add "     Status Page        : https://admin.microsoft.com  (Health -> Service health)"
 Add ""
 
 Add "  -- Cisco Webex ---------------------------------------------------------------"
-$wxConnStr  = if ($webexConnTest.Success) {'PASS'} else {'FAIL'}
-$wxWebStr   = if ($extURLTests['Webex'].Success) {'PASS'} else {'FAIL'}
+$wxConnR    = $cloudConnTests['Cisco Webex']
+$wxConnStr  = if ($wxConnR) { if ($wxConnR.Success) {'PASS'} else {'FAIL'} } else { 'N/A' }
+$wxWebR     = $extURLTests['Webex']
+$wxWebStr   = if ($wxWebR) { if ($wxWebR.Success) {'PASS'} else {'FAIL'} } else { 'N/A' }
 $wxDNSEntry = $dnsResults['Webex']
-$wxDNSStr   = if ($wxDNSEntry -and $wxDNSEntry.Success) { "PASS - $($wxDNSEntry.IPs)" } else { "FAIL - $(if($wxDNSEntry){$wxDNSEntry.Error}else{'no result'})" }
+$wxDNSStr   = if ($wxDNSEntry -and $wxDNSEntry.Success) { "PASS - $($wxDNSEntry.IPs)" } else { "FAIL - $(if($wxDNSEntry){$wxDNSEntry.Error}else{'not tested'})" }
 $wxPingEntry= $pingResults['Webex']
-$wxPingStr  = if ($wxPingEntry) { "$($wxPingEntry.Avg) ms  /  $($wxPingEntry.Loss)% loss" } else { "N/A" }
-Add "     API Ping           : $wxConnStr  HTTP $($webexConnTest.StatusCode)  Latency: $($webexConnTest.LatencyMs) ms"
-Add "     Web Client         : $wxWebStr  HTTP $($extURLTests['Webex'].StatusCode)  Latency: $($extURLTests['Webex'].LatencyMs) ms"
+$wxPingStr  = if ($wxPingEntry) { "$($wxPingEntry.Avg) ms avg  /  $($wxPingEntry.Loss)% loss" } else { "not tested" }
+Add "     Connectivity Check : $wxConnStr$(if($wxConnR){" HTTP $($wxConnR.StatusCode)  Latency: $($wxConnR.LatencyMs) ms"}else{""})"
+Add "     Web Access         : $wxWebStr$(if($wxWebR){" HTTP $($wxWebR.StatusCode)  Latency: $($wxWebR.LatencyMs) ms"}else{""})"
 Add "     DNS Resolution     : $wxDNSStr"
 Add "     Ping (avg/loss)    : $wxPingStr"
 Add "     Status Page        : https://status.webex.com"
 Add ""
 
 Add "  -- Microsoft 365 -------------------------------------------------------------"
-$m3ConnStr  = if ($m365Test.Success) {'PASS'} else {'FAIL'}
-$m3SpStr    = if ($extURLTests['SharePoint'].Success) {'PASS'} else {'FAIL'}
-$m3O365Str  = if ($extURLTests['Office 365'].Success) {'PASS'} else {'FAIL'}
+$m3WebR     = $extURLTests['Office 365']
+$m3SpR      = $extURLTests['SharePoint']
+$m3WebStr   = if ($m3WebR) { if ($m3WebR.Success) {'PASS'} else {'FAIL'} } else { 'N/A' }
+$m3SpStr    = if ($m3SpR)  { if ($m3SpR.Success)  {'PASS'} else {'FAIL'} } else { 'N/A' }
 $m3DNSEntry = $dnsResults['Office 365']
-$m3DNSStr   = if ($m3DNSEntry -and $m3DNSEntry.Success) { "PASS - $($m3DNSEntry.IPs)" } else { "FAIL - $(if($m3DNSEntry){$m3DNSEntry.Error}else{'no result'})" }
-Add "     Portal Access      : $m3ConnStr  HTTP $($m365Test.StatusCode)  Latency: $($m365Test.LatencyMs) ms"
-Add "     SharePoint         : $m3SpStr  HTTP $($extURLTests['SharePoint'].StatusCode)  Latency: $($extURLTests['SharePoint'].LatencyMs) ms"
-Add "     Office 365         : $m3O365Str  HTTP $($extURLTests['Office 365'].StatusCode)  Latency: $($extURLTests['Office 365'].LatencyMs) ms"
+$m3DNSStr   = if ($m3DNSEntry -and $m3DNSEntry.Success) { "PASS - $($m3DNSEntry.IPs)" } else { "FAIL - $(if($m3DNSEntry){$m3DNSEntry.Error}else{'not tested'})" }
+$m3PingEntry= $pingResults['Office 365']
+$m3PingStr  = if ($m3PingEntry) { "$($m3PingEntry.Avg) ms avg  /  $($m3PingEntry.Loss)% loss" } else { "not tested" }
+Add "     Portal Access      : $m3WebStr$(if($m3WebR){" HTTP $($m3WebR.StatusCode)  Latency: $($m3WebR.LatencyMs) ms"}else{""})"
+Add "     SharePoint Online  : $m3SpStr$(if($m3SpR){" HTTP $($m3SpR.StatusCode)  Latency: $($m3SpR.LatencyMs) ms"}else{""})"
 Add "     DNS (office.com)   : $m3DNSStr"
+Add "     Ping (avg/loss)    : $m3PingStr"
 Add "     Status Page        : https://status.office365.com"
 Add ""
 
@@ -616,9 +640,18 @@ Add "$(HR '=')"
 #── Save Report ────────────────────────────────────────────────────────────────
 $step++; Write-Progress-Step $step $totalSteps $activity "Saving report file..."
 
-$timestamp  = $genTime.ToString("yyyyMMdd_HHmm")
-$reportName = "${computerName}_NetTest_${timestamp}.txt"
-$reportPath = Join-Path $env:USERPROFILE $reportName
+$timestamp    = $genTime.ToString("yyyyMMdd_HHmm")
+$baseName     = "${computerName}_NetTest_${timestamp}"
+$reportPath   = Join-Path $env:USERPROFILE "${baseName}.txt"
+
+# If the file already exists, append an incrementing counter
+if (Test-Path $reportPath) {
+    $counter = 2
+    do {
+        $reportPath = Join-Path $env:USERPROFILE "${baseName}_${counter}.txt"
+        $counter++
+    } while (Test-Path $reportPath)
+}
 
 $reportLines | Set-Content -Path $reportPath -Encoding UTF8
 
@@ -636,23 +669,24 @@ Write-Host ""
 $sumLocal = if ($localNetOK)    { "OK" } else { "ISSUE DETECTED" }
 $sumInt   = if ($internalSvcOK) { "OK" } else { "ISSUE DETECTED" }
 $sumInet  = if ($internetSvcOK) { "OK" } else { "ISSUE DETECTED" }
-$sumTeams = if ($teamsConnOK)   { "OK" } else { "ISSUE DETECTED" }
-$sumWebex = if ($webexConnOK)   { "OK" } else { "ISSUE DETECTED" }
-$sumM365  = if ($m365OK)        { "OK" } else { "ISSUE DETECTED" }
 $colLocal = if ($localNetOK)    { "Green" } else { "Red" }
 $colInt   = if ($internalSvcOK) { "Green" } else { "Red" }
 $colInet  = if ($internetSvcOK) { "Green" } else { "Red" }
-$colTeams = if ($teamsConnOK)   { "Green" } else { "Red" }
-$colWebex = if ($webexConnOK)   { "Green" } else { "Red" }
-$colM365  = if ($m365OK)        { "Green" } else { "Red" }
 
 Write-Host "  SUMMARY" -ForegroundColor Yellow
-Write-Host "  Local Network  : $sumLocal"  -ForegroundColor $colLocal
-Write-Host "  Internal Svcs  : $sumInt"    -ForegroundColor $colInt
-Write-Host "  Internet Svcs  : $sumInet"   -ForegroundColor $colInet
-Write-Host "  MS Teams       : $sumTeams"  -ForegroundColor $colTeams
-Write-Host "  Cisco Webex    : $sumWebex"  -ForegroundColor $colWebex
-Write-Host "  M365           : $sumM365"   -ForegroundColor $colM365
+Write-Host "  Local Network  : $sumLocal" -ForegroundColor $colLocal
+Write-Host "  Internal Svcs  : $sumInt"   -ForegroundColor $colInt
+Write-Host "  Internet Svcs  : $sumInet"  -ForegroundColor $colInet
+
+foreach ($platform in $Config.CloudPlatforms) {
+    $connR  = $cloudConnTests[$platform.Name]
+    $webR   = $extURLTests[$platform.WebURLName]
+    $platOK = if ($connR) { $connR.Success } elseif ($webR) { $webR.Success } else { $false }
+    $platStr = if ($platOK) { "OK" } else { "ISSUE DETECTED" }
+    $platCol = if ($platOK) { "Green" } else { "Red" }
+    $label   = $platform.Name.PadRight(14)
+    Write-Host "  $label : $platStr" -ForegroundColor $platCol
+}
 Write-Host ""
 
 #endregion
